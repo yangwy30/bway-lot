@@ -16,43 +16,45 @@ A high-performance, stealthy automation suite for Broadway Direct, Lucky Seat, a
   <img src="./public/images/screenshots/history.png" width="45%" alt="Automation History" />
 </div>
 
-## 🚀 Terminal Walkthrough
+To get this running on your own laptop, follow this guide:
 
-To run this project locally on your machine, follow these steps:
-
-### 1. Prerequisites
-Ensure you have **Node.js 18+** installed. You will also need a **CapSolver API Key** and **SMTP credentials** for email notifications (if using).
-
-### 2. Installation
+### 1. 📥 Clone the Repository
 ```bash
-# Install dependencies
+git clone https://github.com/yangwy30/bway-lot.git
+cd bway-lot
+```
+
+### 2. 🛠️ Prerequisites
+- **Node.js 18+** installed.
+- **CapSolver API Key**: Sign up at [CapSolver](https://www.capsolver.com/) to solve reCAPTCHA and Turnstile challenges automatically.
+
+### 3. 📦 Installation
+```bash
+# Install all dependencies
 npm install
 
-# Install Playwright browsers
+# Install Playwright browser engines
 npx playwright install chromium
 ```
 
-### 3. Configuration
-Create a `.env.local` file in the root directory:
-```env
-CAPSOLVER_API_KEY=your_key_here
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
-```
+> [!NOTE]
+> This tool is optimized for **macOS**. It automatically redirects temporary files to `./data/tmp/` to avoid common permission errors (`EPERM`).
 
-### 4. Running the App
+### 4. ⚙️ Configuration
+1.  **API Keys**: Create a `.env.local` file in the root:
+    ```env
+    CAPSOLVER_API_KEY=CAI-8F32... (your key from CapSolver dashboard)
+    ```
+2.  **Profiles**: Go to the **Management** tab in the app UI to add your name, email, and zip code. This data is stored locally in `data/profiles.json` and never leaves your machine.
+
+### 5. 🚀 Launch
 ```bash
-# Start the Next.js development server
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to manage profiles and view lotteries.
+Open [http://localhost:3000](http://localhost:3000) and you're ready to win!
 
-### 5. Manual CLI Testing
-To run a specific automation test from the terminal:
-```bash
-npx ts-node src/test-real-entry-tc.ts
-```
-
+---
+*Developed with love for Broadway fans. High success rates for Aladdin and The Lion King verified.*
 ## 🛠️ Project "Memory"
 For a detailed history of the technical journey, decisions, and collaborative milestones, see [project_history.md](./project_history.md).
 
