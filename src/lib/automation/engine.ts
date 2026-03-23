@@ -25,8 +25,31 @@ export interface EntryLogRecord extends EntryResult {
 }
 
 export class AutomationEngine {
+  private static isStopped = false;
+
+  public static stop() {
+    AutomationEngine.isStopped = true;
+    logger.log('🛑 Automation stop signal received. Cancelling remaining tasks...', 'warning');
+  }
+
+  public static reset() {
+    AutomationEngine.isStopped = false;
+  }
+
   constructor() {
     this.ensureDataDir();
+    this.setupTempDir();
+  }
+
+  private setupTempDir() {
+    const tmpDir = path.join(process.cwd(), 'data', 'tmp');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    // Direct Playwright and other tools to use our local writable temp folder
+    process.env.TMPDIR = tmpDir;
+    process.env.TEMP = tmpDir;
+    process.env.TMP = tmpDir;
   }
 
   private getSubmitters(): Record<string, Submitter> {
@@ -69,6 +92,10 @@ export class AutomationEngine {
     logger.log(`Starting batch for ${show.title} on ${show.site} with ${profiles.length} profiles`, 'info');
 
     for (const profile of profiles) {
+      if (AutomationEngine.isStopped) {
+        logger.log(`Skipping remaining profiles for ${show.title} due to stop signal`, 'warning');
+        break;
+      }
       try {
         const result = await submitter.submitEntry(show, profile);
         results.push(result);
@@ -93,6 +120,7 @@ export class AutomationEngine {
            logger.log(`FAILED: ${show.title} — ${result.message}`, 'error');
         }
       } catch (err: any) {
+        logger.log(`Batch error for ${profile.firstName || 'User'}: ${err.message}`, 'error');
         results.push({
           showId: show.id,
           profileId: profile.id,

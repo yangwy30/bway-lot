@@ -28,10 +28,15 @@ export default function Home() {
   }
 
   const handleOpenEnrollModal = (showId: string) => {
+    const enrollment = enrollments.find(e => e.showId === showId);
+    // If no enrollment exists OR it exists but is inactive, select ALL profiles by default
+    // If it exists and is active, use the current selection
+    if (!enrollment || !enrollment.active) {
+      setModalSelectedProfiles(profiles.map(p => p.id));
+    } else {
+      setModalSelectedProfiles(enrollment.profileIds || []);
+    }
     setEnrollModalShowId(showId);
-    // Pre-select currently enrolled profiles, or all profiles if none
-    const currentList = getEnrolledProfiles(showId);
-    setModalSelectedProfiles(currentList.length > 0 ? currentList : profiles.map(p => p.id));
   };
 
   const saveEnrollment = async (showId: string, profileIds: string[], forceActive?: boolean) => {
@@ -232,9 +237,22 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-sm w-full border border-zinc-200 dark:border-zinc-800 shadow-2xl">
             <h2 className="text-xl font-black italic tracking-tight mb-2">Configure Enrollment</h2>
-            <p className="text-sm text-zinc-500 mb-6">Select which profiles should be auto-entered into this lottery.</p>
+            <p className="text-sm text-zinc-500 mb-6">Select which profiles should be auto-entered.</p>
             
-            <div className="flex flex-col gap-3 mb-8">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{modalSelectedProfiles.length} of {profiles.length} selected</span>
+              <button 
+                onClick={() => {
+                  if (modalSelectedProfiles.length === profiles.length) setModalSelectedProfiles([]);
+                  else setModalSelectedProfiles(profiles.map(p => p.id));
+                }}
+                className="text-[10px] font-bold uppercase tracking-widest text-[#ff385c] hover:underline"
+              >
+                {modalSelectedProfiles.length === profiles.length ? 'Unselect All' : 'Select All'}
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 mb-8 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {profiles.map(p => (
                 <label key={p.id} className="flex items-center gap-3 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                   <input 

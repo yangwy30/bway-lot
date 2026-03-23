@@ -18,6 +18,7 @@ export async function POST() {
     }
 
     logger.clear();
+    AutomationEngine.reset();
     const activeEnrollments = enrollments.filter(e => e.active);
     logger.log(`Triggering manual run for ${activeEnrollments.length} active enrollments...`, 'info');
     
@@ -37,8 +38,13 @@ export async function POST() {
         } else {
            logger.log(`No profiles found for enrollment ${show.title}.`, 'warning');
         }
+        if ((AutomationEngine as any).isStopped) {
+           logger.log('Automation halted by user request.', 'warning');
+           break;
+        }
       }
-      logger.log(`All operations completed successfully.`, 'success');
+      const isStopped = (AutomationEngine as any).isStopped;
+      logger.log(isStopped ? 'Operation cancelled.' : 'All operations completed successfully.', isStopped ? 'warning' : 'success');
     } catch (err: any) {
       logger.log(`Engine execution error: ${err.message}`, 'error');
     }

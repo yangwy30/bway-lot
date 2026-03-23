@@ -50,30 +50,48 @@ export default function Automation() {
                <div className="text-[10px] text-zinc-400 font-mono">NEXT RUN: Tomorrow 9:00 AM</div>
              </div>
              
-             <button 
-               onClick={async (e) => {
-                 const btn = e.currentTarget;
-                 btn.disabled = true;
-                 btn.innerHTML = 'Running...';
-                 setLogs([{ 
-                   id: 'test', 
-                   timestamp: new Date().toISOString(), 
-                   message: 'Triggering engine...', 
-                   level: 'info' 
-                 }]);
-                 try {
-                   const res = await fetch('/api/run-automation', { method: 'POST' });
-                   if (res.ok) btn.innerHTML = 'Triggered!';
-                   else btn.innerHTML = 'Error';
-                 } catch {
-                   btn.innerHTML = 'Error';
-                 }
-                 setTimeout(() => { btn.disabled = false; btn.innerHTML = '▶ Run Engine Now'; }, 3000);
-               }}
-               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20 active:scale-95"
-             >
-               ▶ Run Engine Now
-             </button>
+             <div className="flex items-center gap-2">
+               <button 
+                 onClick={async (e) => {
+                   const btn = e.currentTarget;
+                   btn.disabled = true;
+                   btn.innerHTML = 'Stopping...';
+                   try {
+                     await fetch('/api/stop-automation', { method: 'POST' });
+                     setTimeout(() => { btn.disabled = false; btn.innerHTML = '⏹ Stop Engine'; }, 2000);
+                   } catch {
+                     btn.disabled = false; btn.innerHTML = '⏹ Stop Engine';
+                   }
+                 }}
+                 className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-red-500 rounded-xl text-xs font-bold transition-all active:scale-95"
+               >
+                 ⏹ Stop Engine
+               </button>
+               <button 
+                 onClick={async (e) => {
+                   const btn = e.currentTarget;
+                   btn.disabled = true;
+                   btn.innerHTML = 'Running...';
+                   setLogs([{ 
+                     id: 'test', 
+                     timestamp: new Date().toISOString(), 
+                     message: 'Triggering engine...', 
+                     level: 'info' 
+                   }]);
+                   try {
+                     const res = await fetch('/api/run-automation', { method: 'POST' });
+                     if (res.ok) btn.innerHTML = 'Triggered!';
+                     else btn.innerHTML = 'Error';
+                   } catch {
+                     btn.innerHTML = 'Error';
+                   }
+                   setTimeout(() => { btn.disabled = false; btn.innerHTML = '▶ Run Engine Now'; }, 3000);
+                 }}
+                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20 active:scale-95"
+               >
+                 ▶ Run Engine Now
+               </button>
+             </div>
           </div>
         </header>
 

@@ -67,7 +67,7 @@ export const MOCK_SHOWS: Show[] = [
     site: 'BroadwayDirect',
     title: 'THE LION KING',
     price: '$35.00',
-    link: 'https://lottery.broadwaydirect.com/show/lion-king-ny/',
+    link: 'https://lottery.broadwaydirect.com/show/the-lion-king/',
     image: 'https://imaging.broadway.com/images/poster-178275/w230/222222/135756-5.jpg',
   },
   // LuckySeat
