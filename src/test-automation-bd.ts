@@ -16,7 +16,7 @@ async function testBroadwayDirect() {
     id: 'test-1',
     firstName: 'Test',
     lastName: 'User',
-    email: 'zhapiboge97+test@gmail.com', // Using user provided email base
+    email: 'your-email@example.com', // Replace with your email
     phone: '2125550123',
     zipCode: '10001',
     dob: {

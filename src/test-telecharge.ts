@@ -10,8 +10,8 @@ async function run() {
     await page.goto('https://my.socialtoaster.com/st/campaign_login/?key=BROADWAY&source=iframe', { waitUntil: 'domcontentloaded' });
     
     console.log("Logging in...");
-    await page.fill('#login_email', 'zhapiboge97@gmail.com');
-    await page.fill('#password', '@Vy#pNVD96rnK!i');
+    await page.fill('#login_email', 'your-email@example.com');
+    await page.fill('#password', 'your-password');
     
     // Click the actual login button
     await page.click('#login_form #get-started-button');
