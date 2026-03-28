@@ -2,6 +2,7 @@ import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { Submitter, Profile, EntryResult } from './types';
 import { Show } from '../show-data';
+import { AutomationEngine } from './engine';
 
 import { logger } from '../logger';
 import path from 'path';
@@ -10,14 +11,16 @@ import fs from 'fs';
 chromium.use(StealthPlugin());
 
 export class LuckySeatSubmitter implements Submitter {
-  async submitEntry(show: Show, profile: Profile): Promise<EntryResult> {
+  async submitEntry(show: Show, profile: Profile, sessionId: string): Promise<EntryResult> {
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
 
     try {
+      if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
       console.log(`[LuckySeat] Starting entry for ${show.title} - ${profile.firstName || ''} ${profile.lastName || ''}`);
       await page.goto(show.link, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
 
       // Discover all "ENTER" buttons
       const enterButtons = await page.locator('button:has-text("ENTER"), a:has-text("ENTER"), .lottery-entry-button').all();
@@ -33,16 +36,23 @@ export class LuckySeatSubmitter implements Submitter {
 
       logger.log(`[LuckySeat] Found ${enterButtons.length} potential entries.`, 'info');
       let successCount = 0;
+      let alreadyEnteredCount = 0;
       
       for (let i = 0; i < enterButtons.length; i++) {
         try {
           // Re-navigate or find buttons again if DOM changes
           const currentButtons = await page.locator('button:has-text("ENTER"), a:has-text("ENTER"), .lottery-entry-button').all();
           if (currentButtons[i]) {
+            if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
             await currentButtons[i].click({ force: true });
             await page.waitForTimeout(2000);
-            await this.fillLuckySeatForm(page, profile);
-            successCount++;
+            if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
+            const entryResultMatch = await this.fillLuckySeatForm(page, profile);
+            if (entryResultMatch === 'already') {
+              alreadyEnteredCount++;
+            } else {
+              successCount++;
+            }
             // Go back to the link to find the next performance
             if (i < enterButtons.length - 1) {
               await page.goto(show.link, { waitUntil: 'domcontentloaded' });
@@ -56,8 +66,13 @@ export class LuckySeatSubmitter implements Submitter {
       return {
         showId: show.id,
         profileId: profile.id,
-        success: successCount > 0,
-        message: `Successfully entered ${successCount} lottery(ies)`,
+        success: successCount > 0 || alreadyEnteredCount > 0,
+        isAlreadyEntered: successCount === 0 && alreadyEnteredCount > 0,
+        message: successCount > 0
+          ? `Successfully entered ${successCount} performance(s) for "${show.title}"${alreadyEnteredCount > 0 ? ` (${alreadyEnteredCount} already entered)` : ''}`
+          : alreadyEnteredCount > 0
+          ? `Already entered all available entries for "${show.title}"`
+          : `No entries successful for "${show.title}"`,
         timestamp: new Date().toISOString()
       };
     } catch (error: any) {
@@ -94,7 +109,11 @@ export class LuckySeatSubmitter implements Submitter {
       }
 
       await page.click('button[type="submit"]');
-      await page.waitForSelector('.success-message, :has-text("received"), :has-text("Success")', { timeout: 15000 });
+      const responseMsg = await page.waitForSelector('.success-message, :has-text("received"), :has-text("Success"), :has-text("already")', { timeout: 15000 });
+      logger.log(`SUCCESS: Logged into Lucky Seat for ${profile.firstName || profile.email}`, 'success');
+      const text = await responseMsg.innerText();
+      return text.toLowerCase().includes('already') ? 'already' : 'success';
     }
+    return 'fail';
   }
 }

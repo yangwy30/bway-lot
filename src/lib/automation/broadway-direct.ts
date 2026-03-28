@@ -16,7 +16,7 @@ const GET_SESSION_PATH = (email?: string) => {
 chromium.use(StealthPlugin());
 
 export class BroadwayDirectSubmitter implements Submitter {
-  async submitEntry(show: Show, profile: Profile): Promise<EntryResult> {
+  async submitEntry(show: Show, profile: Profile, sessionId: string): Promise<EntryResult> {
     const browser = await chromium.launch({ headless: true });
     const sessionPath = GET_SESSION_PATH(profile.email);
     const sessionDir = path.dirname(sessionPath);
@@ -27,11 +27,14 @@ export class BroadwayDirectSubmitter implements Submitter {
     const page = await context.newPage();
 
     try {
+      if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
       logger.log(`[BroadwayDirect] Starting entry for ${show.title} - ${profile.firstName || ''} ${profile.lastName || ''}`, 'info');
       await page.goto(show.link, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
 
       // Initial Turnstile check
       await this.solveBotChallengeIfNeeded(page);
+      logger.log(`SUCCESS: Accessed Broadway Direct form for ${profile.firstName || profile.email}`, 'success');
 
       // --- Discover all open lotteries ---
       logger.log('[BroadwayDirect] Scanning for open lotteries...', 'info');
@@ -54,7 +57,7 @@ export class BroadwayDirectSubmitter implements Submitter {
            logger.log('[BroadwayDirect] No hrefs found, attempting direct click on first button.', 'info');
            await enterNowLocators[0].click({ force: true }).catch(() => {});
            await page.waitForTimeout(2000);
-           await this.fillAndSubmitForm(page, profile, show.id);
+           await this.fillAndSubmitForm(page, profile, show.id, sessionId);
            return { showId: show.id, profileId: profile.id, success: true, message: 'Entered (single click fallback)', timestamp: new Date().toISOString() };
         }
         
@@ -67,18 +70,24 @@ export class BroadwayDirectSubmitter implements Submitter {
 
       logger.log(`[BroadwayDirect] Found ${entryLinks.length} open lotteries. Processing sequentially...`, 'info');
       let successCount = 0;
+      let alreadyEnteredCount = 0;
       let totalFailed = 0;
 
       for (const link of entryLinks) {
-        if ((AutomationEngine as any).isStopped) {
-          logger.log('[BroadwayDirect] Aborting remaining entries due to stop signal', 'warning');
-          break;
+        if (AutomationEngine.currentSessionId !== sessionId) {
+          logger.log('[BroadwayDirect] Stop signal received, closing browser...', 'warning');
+          throw new Error('Stop signal received');
         }
         try {
           logger.log(`[BroadwayDirect] Entering lottery: ${link}`, 'info');
           await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
-          await this.fillAndSubmitForm(page, profile, show.id);
-          successCount++;
+          if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
+          const entryResultMatch = await this.fillAndSubmitForm(page, profile, show.id, sessionId);
+          if (entryResultMatch === 'already') {
+            alreadyEnteredCount++;
+          } else {
+            successCount++;
+          }
           // Save session after first success to keep cookies warm
           await context.storageState({ path: sessionPath });
         } catch (e: any) {
@@ -90,10 +99,13 @@ export class BroadwayDirectSubmitter implements Submitter {
       return {
         showId: show.id,
         profileId: profile.id,
-        success: successCount > 0,
+        success: successCount > 0 || alreadyEnteredCount > 0,
+        isAlreadyEntered: successCount === 0 && alreadyEnteredCount > 0,
         message: successCount > 0 
-          ? `Successfully entered ${successCount} lottery(ies)${totalFailed > 0 ? ` (${totalFailed} failed)` : ''}`
-          : `Failed all ${entryLinks.length} entries`,
+          ? `Successfully entered ${successCount} performance(s) for "${show.title}"${alreadyEnteredCount > 0 ? ` (${alreadyEnteredCount} already entered)` : ''}`
+          : alreadyEnteredCount > 0
+          ? `Already entered all available entries for "${show.title}"`
+          : `No entries successful for "${show.title}"`,
         timestamp: new Date().toISOString()
       };
     } catch (error: any) {
@@ -195,7 +207,7 @@ export class BroadwayDirectSubmitter implements Submitter {
     }
   }
 
-  private async fillAndSubmitForm(page: any, profile: Profile, showId: string) {
+  private async fillAndSubmitForm(page: any, profile: Profile, showId: string, sessionId: string) {
     // 1. Aggressively nuke OneTrust and other banners FIRST to avoid blocking
     await page.evaluate(() => {
       const nuke = () => {
@@ -286,20 +298,39 @@ export class BroadwayDirectSubmitter implements Submitter {
       } catch (e) {}
     }
 
-    // Terms
-    // Harden terms checkbox selection
-    const termsCheckbox = page.locator('input[type="checkbox"][name*="terms" i], #dlslot_terms').first();
-    await termsCheckbox.scrollIntoViewIfNeeded().catch(() => {});
-    await page.evaluate(() => {
-      const cb = document.querySelector('input[type="checkbox"][name*="terms" i], #dlslot_terms') as HTMLInputElement;
-      if (cb) {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
+    // Terms & Conditions - be VERY aggressive here
+    const termsSelectors = [
+      'input[type="checkbox"][name*="terms" i]',
+      '#dlslot_terms',
+      'label:has-text("I AGREE")',
+      'label:has-text("TERMS")',
+      '.terms-label',
+      '.st_campaign_checkbox_custom'
+    ];
+
+    for (const selector of termsSelectors) {
+      const loc = page.locator(selector).first();
+      if (await loc.isVisible().catch(() => false)) {
+        await loc.click({ force: true, timeout: 2000 }).catch(() => {});
       }
+    }
+
+    // Backup JS force
+    await page.evaluate(() => {
+      const selectors = ['input[type="checkbox"][name*="terms" i]', '#dlslot_terms'];
+      selectors.forEach(s => {
+        const cb = document.querySelector(s) as HTMLInputElement;
+        if (cb) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+          cb.dispatchEvent(new Event('click', { bubbles: true }));
+        }
+      });
+      // Also click anything that looks like a custom checkbox nearby
+      const labels = Array.from(document.querySelectorAll('label'));
+      const termsLabel = labels.find(l => l.innerText.toUpperCase().includes('TERMS') || l.innerText.toUpperCase().includes('I AGREE'));
+      if (termsLabel) termsLabel.click();
     }).catch(() => {});
-    await termsCheckbox.check({ force: true }).catch(async () => {
-       await page.locator('label[for*="terms" i], label:has-text("Terms"), .terms-label').first().click({ force: true }).catch(() => {});
-    });
 
     const submitBtn = page.getByRole('button', { name: /ENTER|Submit/i }).or(page.locator('button[type="submit"]')).first();
     // Ensure page is scrolled to bottom before clicking Enter.
@@ -308,9 +339,11 @@ export class BroadwayDirectSubmitter implements Submitter {
     
     // Final Bot check (Turnstile/reCAPTCHA) on the form right before clicking submit!
     await this.solveBotChallengeIfNeeded(page);
+    if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
     
     await page.waitForTimeout(500);
     await submitBtn.click({ force: true });
+    if (AutomationEngine.currentSessionId !== sessionId) throw new Error('Stop signal received');
 
     const successSelector = '.success-message, :has-text("Your lottery entry has been received"), :has-text("SUCCESS"), :has-text("already entered"), :has-text("Already have an entry"), :has-text("ALMOST DONE"), :has-text("validation link"), :has-text("check your email")';
     logger.log('[BroadwayDirect] Form submitted. Waiting for confirmation...', 'info');
@@ -320,8 +353,10 @@ export class BroadwayDirectSubmitter implements Submitter {
       const text = await responseMsg.innerText();
       if (text.toLowerCase().includes('already')) {
          logger.log(`[BroadwayDirect] Already entered for this performance.`, 'info');
+         return 'already';
       } else {
          logger.log(`[BroadwayDirect] ✅ Entry confirmed: ${text.substring(0, 50)}...`, 'success');
+         return 'success';
       }
     } catch (e) {
       const screenshotPath = `logs/form-fail-${showId}-${profile.id}-${Date.now()}.png`;

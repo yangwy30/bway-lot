@@ -3,13 +3,14 @@
 import React, { useState, useMemo } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { ShowCard } from '@/components/ShowCard';
-import { MOCK_SHOWS } from '@/lib/show-data';
+import type { Show } from '@/lib/show-data';
 import { Search, Bell, Grid, List as ListIcon, Ticket, Loader2, BellOff } from 'lucide-react';
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [shows, setShows] = useState<Show[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loadingShowId, setLoadingShowId] = useState<string | null>(null);
@@ -17,6 +18,7 @@ export default function Home() {
   const [modalSelectedProfiles, setModalSelectedProfiles] = useState<string[]>([]);
 
   React.useEffect(() => {
+    fetch('/api/shows').then(res => res.json()).then(data => { if (Array.isArray(data)) setShows(data); });
     fetch('/api/enroll').then(res => res.json()).then(data => setEnrollments(data));
     fetch('/api/profiles').then(res => res.json()).then(data => setProfiles(data));
   }, []);
@@ -76,12 +78,12 @@ export default function Home() {
   const tabs = ['All', 'BroadwayDirect', 'LuckySeat', 'Telecharge'];
 
   const filteredShows = useMemo(() => {
-    return MOCK_SHOWS.filter(show => {
+    return shows.filter(show => {
       const matchesSearch = show.title.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTab = activeTab === 'All' || show.site === activeTab;
       return matchesSearch && matchesTab;
     });
-  }, [searchQuery, activeTab]);
+  }, [shows, searchQuery, activeTab]);
 
   return (
     <div className="flex min-h-screen bg-white dark:bg-black font-sans text-foreground">

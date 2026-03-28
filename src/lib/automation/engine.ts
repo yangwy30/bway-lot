@@ -24,16 +24,33 @@ export interface EntryLogRecord extends EntryResult {
   site: string;
 }
 
-export class AutomationEngine {
-  private static isStopped = false;
+declare global {
+  var __automationSessionId: string | null;
+}
 
-  public static stop() {
-    AutomationEngine.isStopped = true;
-    logger.log('🛑 Automation stop signal received. Cancelling remaining tasks...', 'warning');
+export class AutomationEngine {
+  public static get currentSessionId(): string | null {
+    if (typeof global !== 'undefined') {
+      return global.__automationSessionId || null;
+    }
+    return null;
   }
 
-  public static reset() {
-    AutomationEngine.isStopped = false;
+  public static set currentSessionId(val: string | null) {
+    if (typeof global !== 'undefined') {
+      global.__automationSessionId = val;
+    }
+  }
+
+  public static stop() {
+    AutomationEngine.currentSessionId = null;
+    logger.log('🛑 Automation stop signal received. Invalidating current session...', 'warning');
+  }
+
+  public static startSession(): string {
+    const sessionId = Math.random().toString(36).substring(7);
+    AutomationEngine.currentSessionId = sessionId;
+    return sessionId;
   }
 
   constructor() {
@@ -81,7 +98,7 @@ export class AutomationEngine {
     }
   }
 
-  async runBatchSubmission(show: Show, profiles: Profile[]): Promise<EntryResult[]> {
+  async runBatchSubmission(show: Show, profiles: Profile[], sessionId: string): Promise<EntryResult[]> {
     const submitter = await this.getSubmitter(show.site);
     if (!submitter) {
       throw new Error(`No submitter found for site: ${show.site}`);
@@ -92,12 +109,15 @@ export class AutomationEngine {
     logger.log(`Starting batch for ${show.title} on ${show.site} with ${profiles.length} profiles`, 'info');
 
     for (const profile of profiles) {
-      if (AutomationEngine.isStopped) {
-        logger.log(`Skipping remaining profiles for ${show.title} due to stop signal`, 'warning');
+      if (AutomationEngine.currentSessionId !== sessionId) {
+        logger.log(`Session mismatch (${sessionId} !== ${AutomationEngine.currentSessionId}). Aborting batch for ${show.title}.`, 'warning');
         break;
       }
       try {
-        const result = await submitter.submitEntry(show, profile);
+        const profileName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User';
+        logger.log(`Starting working on ${profileName}...`, 'info');
+
+        const result = await submitter.submitEntry(show, profile, sessionId);
         results.push(result);
 
         // Persist to entry log
@@ -110,14 +130,25 @@ export class AutomationEngine {
         });
 
         if (result.success) {
-           logger.log(`SUCCESS: ${show.title} — ${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User', 'success');
-           await emailService.sendEmail({
-             to: profile.email || profile.telechargeEmail || '',
-             subject: `Entered! 🎟️ ${show.title}`,
-             html: emailService.generateEntryConfirmationHTML(show.title, profile.firstName || 'there')
-           }).catch(err => logger.log(`Failed to send entry confirmation email: ${err}`, 'error'));
+           if (AutomationEngine.currentSessionId !== sessionId) break;
+
+           const profileName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User';
+           const isAlready = result.message.toLowerCase().includes('already');
+           
+           if (isAlready) {
+             logger.log(`ALREADY ENTERED: ${show.title} — ${profileName}`, 'info');
+           } else {
+             logger.log(`SUCCESS: ${show.title} — ${profileName}`, 'success');
+             await emailService.sendEmail({
+               to: profile.email || profile.telechargeEmail || '',
+               subject: `Entered! 🎟️ ${show.title}`,
+               html: emailService.generateEntryConfirmationHTML(show.title, profile.firstName || 'there')
+             }).catch(err => logger.log(`Failed to send entry confirmation email: ${err}`, 'error'));
+           }
         } else {
-           logger.log(`FAILED: ${show.title} — ${result.message}`, 'error');
+           if (AutomationEngine.currentSessionId === sessionId) {
+             logger.log(`FAILED: ${show.title} — ${result.message}`, 'error');
+           }
         }
       } catch (err: any) {
         logger.log(`Batch error for ${profile.firstName || 'User'}: ${err.message}`, 'error');

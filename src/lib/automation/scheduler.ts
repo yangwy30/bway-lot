@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { AutomationEngine } from './engine';
-import { MOCK_SHOWS } from '../show-data';
+import { getShows } from '../show-data';
 import { EmailService } from '../notifications/email';
 import fs from 'fs';
 import path from 'path';
@@ -29,11 +29,14 @@ export function startScheduler() {
       const profiles = engine.getProfiles(userId);
       const emailService = new EmailService();
       const userResults: { showTitle: string; success: boolean; message: string }[] = [];
+
+      // Fetch live show data for this run
+      const allShows = await getShows();
       
       for (const enrollment of enrollments) {
         if (!enrollment.active || !enrollment.autoReenroll) continue;
 
-        const show = MOCK_SHOWS.find((s: any) => s.id === enrollment.showId);
+        const show = allShows.find((s: any) => s.id === enrollment.showId);
         if (!show) continue;
 
         console.log(`[Scheduler] Checking ${show.title} for user ${user.username}...`);

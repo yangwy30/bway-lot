@@ -23,11 +23,12 @@ export interface EntryResult {
   showId: string;
   profileId: string;
   success: boolean;
+  isAlreadyEntered?: boolean;
   message: string;
   timestamp: string;
   screenshotPath?: string;
 }
 
 export interface Submitter {
-  submitEntry(show: Show, profile: Profile): Promise<EntryResult>;
+  submitEntry(show: Show, profile: Profile, sessionId: string): Promise<EntryResult>;
 }
