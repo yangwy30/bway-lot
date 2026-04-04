@@ -31,4 +31,6 @@ export interface EntryResult {
 
 export interface Submitter {
   submitEntry(show: Show, profile: Profile, sessionId: string): Promise<EntryResult>;
+  /** Optional: enter multiple shows in a single browser session (e.g. Telecharge shared dashboard). */
+  submitEntries?(shows: Show[], profile: Profile, sessionId: string): Promise<EntryResult[]>;
 }

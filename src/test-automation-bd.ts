@@ -1,5 +1,5 @@
 import { BroadwayDirectSubmitter } from './lib/automation/broadway-direct';
-import { MOCK_SHOWS } from './lib/mock-data';
+import { MOCK_SHOWS } from './lib/show-data';
 import { Profile } from './lib/automation/types';
 
 async function testBroadwayDirect() {
@@ -27,7 +27,7 @@ async function testBroadwayDirect() {
   };
 
   try {
-    const result = await submitter.submitEntry(aladdin, testProfile);
+    const result = await submitter.submitEntry(aladdin, testProfile, '');
     console.log('Test Result:', JSON.stringify(result, null, 2));
   } catch (err) {
     console.error('Test failed:', err);

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AutomationEngine } from '@/lib/automation/engine';
-import { getShows } from '@/lib/show-data';
+import { getShows, Show } from '@/lib/show-data';
 import { logger } from '@/lib/logger';
 import { getUserId } from '@/lib/auth';
 
@@ -29,39 +29,77 @@ export async function POST() {
     // Fetch live show data
     const allShows = await getShows();
  
-     // Await execution to prevent Next.js from closing the execution context early
-     try {
-       for (const enrollment of activeEnrollments) {
-         if (AutomationEngine.currentSessionId !== sessionId) break;
+      // Await execution to prevent Next.js from closing the execution context early
+      try {
+        // Separate Telecharge enrollments from others for optimized handling
+        const telechargeEnrollments: typeof activeEnrollments = [];
+        const otherEnrollments: typeof activeEnrollments = [];
 
-         const show = allShows.find(s => s.id === enrollment.showId);
-         if (!show) {
+        for (const enrollment of activeEnrollments) {
+          const show = allShows.find(s => s.id === enrollment.showId);
+          if (!show) {
             logger.log(`Show ${enrollment.showId} not found in catalog.`, 'warning');
             continue;
-         }
-         
-         // Find matching profiles
-         const selectedProfiles = profiles.filter(p => enrollment.profileIds.includes(p.id));
-         if (selectedProfiles.length > 0) {
-            await engine.runBatchSubmission(show, selectedProfiles, sessionId);
-         } else {
-            logger.log(`No profiles found for enrollment ${show.title}.`, 'warning');
-         }
+          }
+          if (show.site === 'Telecharge') {
+            telechargeEnrollments.push(enrollment);
+          } else {
+            otherEnrollments.push(enrollment);
+          }
+        }
 
-         if (AutomationEngine.currentSessionId !== sessionId) {
+        // Process Telecharge shows with optimized multi-show-per-login batch
+        if (telechargeEnrollments.length > 0 && AutomationEngine.currentSessionId === sessionId) {
+          logger.log(`[Telecharge] Grouping ${telechargeEnrollments.length} show(s) for optimized multi-show entry...`, 'info');
+          const showsWithProfiles: { show: Show; profiles: typeof profiles }[] = [];
+
+          for (const enrollment of telechargeEnrollments) {
+            const show = allShows.find(s => s.id === enrollment.showId)!;
+            const selectedProfiles = profiles.filter(p => enrollment.profileIds.includes(p.id));
+            if (selectedProfiles.length > 0) {
+              showsWithProfiles.push({ show, profiles: selectedProfiles });
+            } else {
+              logger.log(`No profiles found for Telecharge enrollment ${show.title}.`, 'warning');
+            }
+          }
+
+          if (showsWithProfiles.length > 0) {
+            await engine.runTelechargeMultiShowBatch(showsWithProfiles, sessionId);
+          }
+        }
+
+        // Process non-Telecharge shows with the standard per-show flow
+        for (const enrollment of otherEnrollments) {
+          if (AutomationEngine.currentSessionId !== sessionId) break;
+
+          const show = allShows.find(s => s.id === enrollment.showId);
+          if (!show) {
+            logger.log(`Show ${enrollment.showId} not found in catalog.`, 'warning');
+            continue;
+          }
+
+          const selectedProfiles = profiles.filter(p => enrollment.profileIds.includes(p.id));
+          if (selectedProfiles.length > 0) {
+            await engine.runBatchSubmission(show, selectedProfiles, sessionId);
+          } else {
+            logger.log(`No profiles found for enrollment ${show.title}.`, 'warning');
+          }
+
+          if (AutomationEngine.currentSessionId !== sessionId) {
             logger.log('Automation halted by user request or new session.', 'warning');
             break;
-         }
-       }
-       const isStopped = AutomationEngine.currentSessionId !== sessionId;
-       if (!isStopped) {
-         logger.log('All operations completed successfully.', 'success');
-       }
-     } catch (err: any) {
-       if (AutomationEngine.currentSessionId === sessionId) {
-         logger.log(`Engine execution error: ${err.message}`, 'error');
-       }
-     }
+          }
+        }
+
+        const isStopped = AutomationEngine.currentSessionId !== sessionId;
+        if (!isStopped) {
+          logger.log('All operations completed successfully.', 'success');
+        }
+      } catch (err: any) {
+        if (AutomationEngine.currentSessionId === sessionId) {
+          logger.log(`Engine execution error: ${err.message}`, 'error');
+        }
+      }
 
     return NextResponse.json({ success: true, message: 'Automation engine triggered' });
   } catch (error: any) {

@@ -165,7 +165,108 @@ export class AutomationEngine {
     return results;
   }
 
-  // Enrollment Management
+  /**
+   * Optimized batch for Telecharge: enters multiple shows in a single browser session per profile.
+   * Groups shows per-profile so each profile logs in only once.
+   */
+  async runTelechargeMultiShowBatch(
+    showsWithProfiles: { show: Show; profiles: Profile[] }[],
+    sessionId: string
+  ): Promise<EntryResult[]> {
+    const submitter = await this.getSubmitter('Telecharge');
+    if (!submitter || !submitter.submitEntries) {
+      throw new Error('Telecharge submitter does not support multi-show entries');
+    }
+
+    // Group shows by profile: { profileId -> { profile, shows[] } }
+    const profileMap = new Map<string, { profile: Profile; shows: Show[] }>();
+    for (const { show, profiles } of showsWithProfiles) {
+      for (const profile of profiles) {
+        if (!profileMap.has(profile.id)) {
+          profileMap.set(profile.id, { profile, shows: [] });
+        }
+        // [Edge 8 fix] Deduplicate: don't add same show twice for one profile
+        const existing = profileMap.get(profile.id)!;
+        if (!existing.shows.some(s => s.id === show.id)) {
+          existing.shows.push(show);
+        }
+      }
+    }
+
+    const allShows = showsWithProfiles.map(sp => sp.show);
+    const showTitles = allShows.map(s => s.title).join(', ');
+    logger.log(`[Telecharge Multi-Show] Starting batch for ${profileMap.size} profile(s) — Shows: ${showTitles}`, 'info');
+
+    const allResults: EntryResult[] = [];
+    const emailService = new EmailService();
+
+    for (const [_profileId, { profile, shows }] of profileMap) {
+      if (AutomationEngine.currentSessionId !== sessionId) {
+        logger.log(`Session mismatch. Aborting Telecharge multi-show batch.`, 'warning');
+        break;
+      }
+
+      const profileName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User';
+      logger.log(`[Telecharge Multi-Show] ${profileName}: entering ${shows.length} show(s) in one session...`, 'info');
+
+      try {
+        const results = await submitter.submitEntries(shows, profile, sessionId);
+
+        for (const result of results) {
+          allResults.push(result);
+
+          // Find the show title for logging
+          const matchedShow = shows.find(s => s.id === result.showId);
+          const showTitle = matchedShow?.title || result.showId;
+
+          // Persist to entry log
+          this.logEntry({
+            ...result,
+            userId: (profile as any).userId,
+            showTitle,
+            profileName,
+            site: 'Telecharge'
+          });
+
+          if (result.success) {
+            if (AutomationEngine.currentSessionId !== sessionId) break;
+
+            const isAlready = result.message.toLowerCase().includes('already');
+            if (isAlready) {
+              logger.log(`ALREADY ENTERED: ${showTitle} — ${profileName}`, 'info');
+            } else {
+              logger.log(`SUCCESS: ${showTitle} — ${profileName}`, 'success');
+              await emailService.sendEmail({
+                to: profile.email || profile.telechargeEmail || '',
+                subject: `Entered! 🎟️ ${showTitle}`,
+                html: emailService.generateEntryConfirmationHTML(showTitle, profile.firstName || 'there')
+              }).catch(err => logger.log(`Failed to send entry confirmation email: ${err}`, 'error'));
+            }
+          } else {
+            if (AutomationEngine.currentSessionId === sessionId) {
+              logger.log(`FAILED: ${showTitle} — ${result.message}`, 'error');
+            }
+          }
+        }
+      } catch (err: any) {
+        logger.log(`Telecharge multi-show batch error for ${profileName}: ${err.message}`, 'error');
+        // Create failure entries for all shows this profile was trying
+        for (const show of shows) {
+          allResults.push({
+            showId: show.id,
+            profileId: profile.id,
+            success: false,
+            message: `Batch error: ${err.message}`,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    return allResults;
+  }
+
+
   getEnrollments(userId: string): Enrollment[] {
     if (!fs.existsSync(ENROLLMENTS_PATH)) return [];
     try {

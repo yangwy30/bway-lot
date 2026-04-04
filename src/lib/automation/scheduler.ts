@@ -30,12 +30,52 @@ export function startScheduler() {
       const emailService = new EmailService();
       const userResults: { showTitle: string; success: boolean; message: string }[] = [];
 
+      // [Concern 4 fix] Start a proper session so session checks work correctly
+      const sessionId = AutomationEngine.startSession();
+
       // Fetch live show data for this run
       const allShows = await getShows();
       
+      // Separate Telecharge enrollments for multi-show optimization
+      const telechargeEnrollments: typeof enrollments = [];
+      const otherEnrollments: typeof enrollments = [];
+
       for (const enrollment of enrollments) {
         if (!enrollment.active || !enrollment.autoReenroll) continue;
+        const show = allShows.find((s: any) => s.id === enrollment.showId);
+        if (!show) continue;
+        if (show.site === 'Telecharge') {
+          telechargeEnrollments.push(enrollment);
+        } else {
+          otherEnrollments.push(enrollment);
+        }
+      }
 
+      // Process Telecharge shows with optimized multi-show batch
+      if (telechargeEnrollments.length > 0) {
+        const showsWithProfiles: { show: any; profiles: any[] }[] = [];
+        for (const enrollment of telechargeEnrollments) {
+          const show = allShows.find((s: any) => s.id === enrollment.showId)!;
+          const selectedProfiles = profiles.filter((p: any) => enrollment.profileIds.includes(p.id));
+          if (selectedProfiles.length > 0) {
+            showsWithProfiles.push({ show, profiles: selectedProfiles });
+          }
+        }
+        if (showsWithProfiles.length > 0) {
+          const batchResults = await engine.runTelechargeMultiShowBatch(showsWithProfiles, sessionId);
+          for (const res of batchResults) {
+            const matchedShow = allShows.find((s: any) => s.id === res.showId);
+            userResults.push({
+              showTitle: matchedShow?.title || res.showId,
+              success: res.success,
+              message: res.message
+            });
+          }
+        }
+      }
+
+      // Process non-Telecharge shows with standard per-show flow
+      for (const enrollment of otherEnrollments) {
         const show = allShows.find((s: any) => s.id === enrollment.showId);
         if (!show) continue;
 
@@ -43,7 +83,7 @@ export function startScheduler() {
 
         const selectedProfiles = profiles.filter((p: any) => enrollment.profileIds.includes(p.id));
         if (selectedProfiles.length > 0) {
-          const batchResults = await engine.runBatchSubmission(show, selectedProfiles);
+          const batchResults = await engine.runBatchSubmission(show, selectedProfiles, sessionId);
           for (const res of batchResults) {
             userResults.push({
               showTitle: show.title,

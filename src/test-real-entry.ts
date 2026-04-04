@@ -1,10 +1,10 @@
 import { AutomationEngine } from './lib/automation/engine';
-import { MOCK_SHOWS } from './lib/mock-data';
+import { MOCK_SHOWS } from './lib/show-data';
 
 async function testRealEntry() {
   const engine = new AutomationEngine();
   const aladdin = MOCK_SHOWS.find(s => s.id === 'bd-1');
-  const profiles = engine.getProfiles();
+  const profiles = engine.getProfiles('test');
   
   if (!aladdin || profiles.length === 0) {
     console.error('Aladdin show or profiles not found!');
@@ -14,7 +14,7 @@ async function testRealEntry() {
   console.log(`🚀 Starting real entry test for ${profiles[0].firstName} for ${aladdin.title}...`);
   
   try {
-    const results = await engine.runBatchSubmission(aladdin, [profiles[0]]);
+    const results = await engine.runBatchSubmission(aladdin, [profiles[0]], '');
     console.log('Final Results:', JSON.stringify(results, null, 2));
   } catch (error) {
     console.error('FATAL TEST ERROR:', error);

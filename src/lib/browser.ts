@@ -1,5 +1,4 @@
 import { chromium } from 'playwright-extra';
-// @ts-expect-error - no types for stealth plugin
 import stealthPlugin from 'puppeteer-extra-plugin-stealth';
 
 // Apply the stealth plugin to avoid Cloudflare bot detection
